@@ -8,25 +8,36 @@ lon = f"{sys.argv[1]}"
 lat = f"{sys.argv[2]}"
 delta = f"{sys.argv[3]}"
 
-params = {
-    "ll": ",".join([lon, lat]),
-    "spn": ",".join([delta, delta]),
-    "l": "map"
-}
-response = requests.get(api_server, params=params)
-map_file = "map.png"
-with open(map_file, "wb") as file:
-    file.write(response.content)
+
 
 # Инициализируем pygame
 pygame.init()
-screen = pygame.display.set_mode((600, 450))
-# Рисуем картинку, загружаемую из только что созданного файла.
-screen.blit(pygame.image.load(map_file), (0, 0))
-# Переключаем экран и ждем закрытия окна.
-pygame.display.flip()
-while pygame.event.wait().type != pygame.QUIT:
-    pass
+running = True
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        key = pygame.key.get_pressed()
+        if key[pygame.K_UP]:
+            if delta < "3":
+                delta = str(float(delta) + 0.001)
+        if key[pygame.K_DOWN]:
+            if delta > "0.001":
+                delta = str(float(delta) - 0.001)
+    params = {
+        "ll": ",".join([lon, lat]),
+        "spn": ",".join([delta, delta]),
+        "l": "map"
+    }
+    response = requests.get(api_server, params=params)
+    map_file = "map.png"
+    with open(map_file, "wb") as file:
+        file.write(response.content)
+    screen = pygame.display.set_mode((600, 450))
+    # Рисуем картинку, загружаемую из только что созданного файла.
+    screen.blit(pygame.image.load(map_file), (0, 0))
+    # Переключаем экран и ждем закрытия окна.
+    pygame.display.flip()
 pygame.quit()
 
 # Удаляем за собой файл с изображением.
