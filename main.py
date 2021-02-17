@@ -1,195 +1,168 @@
-import pygame
 import requests
 import sys
+import pygame
 import os
+from io import BytesIO  # Этот класс поможет нам сделать картинку из потока байт
 
-import math
+from PIL import Image
+from PyQt5.QtWidgets import QApplication, QPushButton
+from PyQt5.QtWidgets import QLineEdit
+from PyQt5.QtWidgets import QWidget
 
-from distance import lonlat_distance
-from geo import reverse_geocode
-from bis import find_business
-# это не готовое решение. Здесь лишь примеры реализации некоторой функциональности из задач урока.
+api_server = "http://static-maps.yandex.ru/1.x/"
 
-# Подобранные константы для поведения карты.
-LAT_STEP = 0.008  # Шаги при движении карты по широте и долготе
-LON_STEP = 0.02
-coord_to_geo_x = 0.0000428  # Пропорции пиксельных и географических координат.
-coord_to_geo_y = 0.0000428
+lon = "37.530887"
+t = lon
+lat = "55.703118"
+delta = "0.002"
+response1 = None
+k1 = delta
+k = "map"
+f = False
+organ = str()
 
+def find(toponym_to_find):
+    geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
+    geocoder_params = {
+        "apikey": "40d1649f-0493-4b70-98ba-98533de7710b",
+        "geocode": toponym_to_find,
+        "format": "json"}
 
-def ll(x, y):
-    return "{0},{1}".format(x, y)
+    response = requests.get(geocoder_api_server, params=geocoder_params)
 
-
-# Структура для хранения результатов поиска:
-# координаты объекта, его название и почтовый индекс, если есть.
-
-class SearchResult(object):
-    def __init__(self, point, address, postal_code=None):
-        self.point = point
-        self.address = address
-        self.postal_code = postal_code
-
-
-# Параметры отображения карты:
-# координаты, масштаб, найденные объекты и т.д.
-
-class MapParams(object):
-    # Параметры по умолчанию.
-    def __init__(self):
-        self.lat = 55.729738  # Координаты центра карты на старте.
-        self.lon = 37.664777
-        self.zoom = 15  # Масштаб карты на старте.
-        self.type = "map"  # Тип карты на старте.
-
-        self.search_result = None  # Найденный объект для отображения на карте.
-        self.use_postal_code = False
-
-    # Преобразование координат в параметр ll
-    def ll(self):
-        return ll(self.lon, self.lat)
-
-    # Обновление параметров карты по нажатой клавише.
-    def update(self, event):
-        if event.key == 280 and self.zoom < 19:  # PG_UP
-            self.zoom += 1
-        elif event.key == 281 and self.zoom > 2:  # PG_DOWN
-            self.zoom -= 1
-        elif event.key == 276:  # LEFT_ARROW
-            self.lon -= LON_STEP * math.pow(2, 15 - self.zoom)
-        elif event.key == 275:  # RIGHT_ARROW
-            self.lon += LON_STEP * math.pow(2, 15 - self.zoom)
-        elif event.key == 273 and self.lat < 85:  # UP_ARROW
-            self.lat += LAT_STEP * math.pow(2, 15 - self.zoom)
-        elif event.key == 274 and self.lat > -85:  # DOWN_ARROW
-            self.lat -= LAT_STEP * math.pow(2, 15 - self.zoom)
-        elif event.key == 49:  # 1
-            self.type = "map"
-        elif event.key == 50:  # 2
-            self.type = "sat"
-        elif event.key == 51:  # 3
-            self.type = "sat,skl"
-        elif event.key == 127:  # DELETE
-            self.search_result = None
-        elif event.key == 277:  # INSERT
-            self.use_postal_code = not self.use_postal_code
-
-        if self.lon > 180: self.lon -= 360
-        if self.lon < -180: self.lon += 360
-
-    # Преобразование экранных координат в географические.
-    def screen_to_geo(self, pos):
-        dy = 225 - pos[1]
-        dx = pos[0] - 300
-        lx = self.lon + dx * coord_to_geo_x * math.pow(2, 15 - self.zoom)
-        ly = self.lat + dy * coord_to_geo_y * math.cos(math.radians(self.lat)) * math.pow(2,
-                                                                                          15 - self.zoom)
-        return lx, ly
-
-    # Добавить результат геопоиска на карту.
-    def add_reverse_toponym_search(self, pos):
-        point = self.screen_to_geo(pos)
-        toponym = reverse_geocode(ll(point[0], point[1]))
-        self.search_result = SearchResult(
-            point,
-            toponym["metaDataProperty"]["GeocoderMetaData"]["text"] if toponym else None,
-            toponym["metaDataProperty"]["GeocoderMetaData"]["Address"].get(
-                "postal_code") if toponym else None)
-
-    # Добавить результат поиска организации на карту.
-    def add_reverse_org_search(self, pos):
-        self.search_result = None
-        point = self.screen_to_geo(pos)
-        org = find_business(ll(point[0], point[1]))
-        if not org:
-            return
-
-        org_point = org["geometry"]["coordinates"]
-        org_lon = float(org_point[0])
-        org_lat = float(org_point[1])
-
-        # Проверяем, что найденный объект не дальше 50м от места клика.
-        if lonlat_distance((org_lon, org_lat), point) <= 50:
-            self.search_result = SearchResult(point, org["properties"]["CompanyMetaData"]["name"])
-
-
-# Создание карты с соответствующими параметрами.
-def load_map(mp):
-    map_request = "http://static-maps.yandex.ru/1.x/?ll={ll}&z={z}&l={type}".format(ll=mp.ll(),
-                                                                                    z=mp.zoom,
-                                                                                    type=mp.type)
-    if mp.search_result:
-        map_request += "&pt={0},{1},pm2grm".format(mp.search_result.point[0],
-                                                   mp.search_result.point[1])
-
-    response = requests.get(map_request)
     if not response:
-        print("Ошибка выполнения запроса:")
-        print(map_request)
-        print("Http статус:", response.status_code, "(", response.reason, ")")
-        sys.exit(1)
+        # обработка ошибочной ситуации
+        pass
 
-    # Запишем полученное изображение в файл.
+    # Преобразуем ответ в json-объект
+    json_response = response.json()
+    # Получаем первый топоним из ответа геокодера.
+    toponym = json_response["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
+    # Координаты центра топонима:
+    toponym_coodrinates = toponym["Point"]["pos"]
+    # Долгота и широта:
+    toponym_longitude, toponym_lattitude = toponym_coodrinates.split(" ")
+
+    delta = "0.005"
+
+    # Собираем параметры для запроса к StaticMapsAPI:
+    map_params = {
+        "ll": ",".join([toponym_longitude, toponym_lattitude]),
+        "spn": ",".join([delta, delta]),
+        "l": "map",
+        "pt": ",".join([toponym_longitude, toponym_lattitude])
+    }
+
+    map_api_server = "http://static-maps.yandex.ru/1.x/"
+    # ... и выполняем запрос
+    response = requests.get(map_api_server, params=map_params)
+    return response
+
+class Example(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+
+    def initUI(self):
+        self.setGeometry(300, 300, 300, 300)
+        self.setWindowTitle('Поиск организации')
+
+        self.btn = QPushButton('Искать', self)
+        self.btn.resize(self.btn.sizeHint())
+        self.btn.move(100, 150)
+        self.btn.clicked.connect(self.hello)
+
+
+
+        self.name_input = QLineEdit(self)
+        self.name_input.move(80, 90)
+
+    def hello(self):
+        name = self.name_input.text()
+        global organ
+        organ = name
+        self.close()
+
+
+
+
+pygame.init()
+running = True
+while running:
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        key = pygame.key.get_pressed()
+        if key[pygame.K_PLUS]:
+            if delta < "3":
+                delta = str(float(delta) + 0.001)
+        if key[pygame.K_MINUS]:
+            if delta > "0.001":
+                delta = str(float(delta) - 0.001)
+        if key[pygame.K_LEFT]:
+            if float(lon) > float(k1) - 0.01:
+                lon = str(float(lon) - 0.0001)
+        if key[pygame.K_RIGHT]:
+            if float(lon) < float(k1) + 0.01:
+                lon = str(float(lon) + 0.0001)
+        if key[pygame.K_UP]:
+            if float(lat) < float(t) + 0.01:
+                lat = str(float(lat) + 0.0001)
+        if key[pygame.K_DOWN]:
+            if float(lat) > float(t) - 0.01:
+                lat = str(float(lat) - 0.0001)
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            pos = pygame.mouse.get_pos()
+            if 0 < pos[0] < 20 and 0 < pos[1] < 20:
+                k = "map"
+            if 20 < pos[0] < 40 and 0 < pos[1] < 20:
+                k = "sat"
+            if 40 < pos[0] < 60 and 0 < pos[1] < 20:
+                k = "sat,skl"
+            if 5 < pos[0] < 100 and 70 < pos[1] < 80:
+                response1 = None
+            if 5 < pos[0] < 100 and 20 < pos[1] < 30:
+                app = QApplication(sys.argv)
+                ex = Example()
+                ex.show()
+                app.exec()
+                response1 = find(organ)
+
+
+    params = {
+        "ll": ",".join([lon, lat]),
+        "spn": ",".join([delta, delta]),
+        "l": k
+    }
+
+    response = requests.get(api_server, params=params)
+    if response1:
+        response = response1
     map_file = "map.png"
-    try:
-        with open(map_file, "wb") as file:
-            file.write(response.content)
-    except IOError as ex:
-        print("Ошибка записи временного файла:", ex)
-        sys.exit(2)
-
-    return map_file
-
-
-# Создание холста с текстом.
-def render_text(text):
-    font = pygame.font.Font(None, 30)
-    return font.render(text, 1, (100, 0, 100))
-
-
-def main():
-    # Инициализируем pygame
-    pygame.init()
+    with open(map_file, "wb") as file:
+        file.write(response.content)
     screen = pygame.display.set_mode((600, 450))
+    screen.blit(pygame.image.load(map_file), (0, 0))
 
-    # Заводим объект, в котором будем хранить все параметры отрисовки карты.
-    mp = MapParams()
+    if response1:
+        font = pygame.font.Font(None, 25)
+        text2 = font.render(organ, True, (0, 0, 0))
+        screen.blit(text2, (5, 40))
+    font0 = pygame.font.Font(None, 20)  # слова вверху
+    text0 = font0.render("Сх", True, (0, 0, 0))
+    screen.blit(text0, (10, 0))
+    text1 = font0.render("Сп", True, (0, 0, 0))
+    screen.blit(text1, (30, 0))
+    text2 = font0.render("Г", True, (0, 0, 0))
+    screen.blit(text2, (50, 0))
 
-    while True:
-        event = pygame.event.wait()
-        if event.type == pygame.QUIT:  # Выход из программы
-            break
-        elif event.type == pygame.KEYUP:  # Обрабатываем различные нажатые клавиши.
-            mp.update(event)
-        elif event.type == pygame.MOUSEBUTTONUP:  # Выполняем поиск по клику мышки.
-            if event.button == 1:  # LEFT_MOUSE_BUTTON
-                mp.add_reverse_toponym_search(event.pos)
-            elif event.button == 3:  # RIGHT_MOUSE_BUTTON
-                mp.add_reverse_org_search(event.pos)
-        else:
-            continue
+    font = pygame.font.Font(None, 25)
+    text2 = font.render("ИСКАТЬ", True, (0, 0, 0))
+    screen.blit(text2, (5, 20))
+    text2 = font.render("СБРОС", True, (0, 0, 0))
+    screen.blit(text2, (5, 70))
 
-        # Загружаем карту, используя текущие параметры.
-        map_file = load_map(mp)
+    pygame.display.flip()
+pygame.quit()
 
-        # Рисуем картинку, загружаемую из только что созданного файла.
-        screen.blit(pygame.image.load(map_file), (0, 0))
-
-        # Добавляем подписи на экран, если они нужны.
-        if mp.search_result:
-            if mp.use_postal_code and mp.search_result.postal_code:
-                text = render_text(mp.search_result.postal_code + ", " + mp.search_result.address)
-            else:
-                text = render_text(mp.search_result.address)
-            screen.blit(text, (20, 400))
-
-        # Переключаем экран и ждем закрытия окна.
-        pygame.display.flip()
-
-    pygame.quit()
-    # Удаляем за собой файл с изображением.
-    os.remove(map_file)
-
-
-if __name__ == "__main__":
-    main()
+os.remove(map_file)
