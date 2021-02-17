@@ -18,7 +18,9 @@ delta = "0.002"
 response1 = None
 k1 = delta
 k = "map"
+ind = ""
 f = False
+f1 = False
 organ = str()
 
 def find(toponym_to_find):
@@ -39,6 +41,10 @@ def find(toponym_to_find):
     # Получаем первый топоним из ответа геокодера.
     toponym = json_response["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]
     # Координаты центра топонима:
+    global ind
+    ind = json_response["response"]["GeoObjectCollection"]["featureMember"][0]["GeoObject"]['metaDataProperty'][
+        'GeocoderMetaData']['Address']['postal_code']
+
     toponym_coodrinates = toponym["Point"]["pos"]
     # Долгота и широта:
     toponym_longitude, toponym_lattitude = toponym_coodrinates.split(" ")
@@ -121,6 +127,8 @@ while running:
                 k = "sat,skl"
             if 5 < pos[0] < 100 and 70 < pos[1] < 80:
                 response1 = None
+            if 5 < pos[0] < 100 and 80 < pos[1] < 90:
+                f1 = not f1
             if 5 < pos[0] < 100 and 20 < pos[1] < 30:
                 app = QApplication(sys.argv)
                 ex = Example()
@@ -146,7 +154,11 @@ while running:
 
     if response1:
         font = pygame.font.Font(None, 25)
-        text2 = font.render(organ, True, (0, 0, 0))
+        if f1:
+            k = organ + " " + ind
+        else:
+            k = organ
+        text2 = font.render(k, True, (0, 0, 0))
         screen.blit(text2, (5, 40))
     font0 = pygame.font.Font(None, 20)  # слова вверху
     text0 = font0.render("Сх", True, (0, 0, 0))
@@ -161,6 +173,8 @@ while running:
     screen.blit(text2, (5, 20))
     text2 = font.render("СБРОС", True, (0, 0, 0))
     screen.blit(text2, (5, 70))
+    text2 = font.render("+", True, (0, 0, 0))
+    screen.blit(text2, (5, 80))
 
     pygame.display.flip()
 pygame.quit()
