@@ -18,10 +18,10 @@ delta = "0.002"
 response1 = None
 k1 = delta
 k = "map"
-ind = ""
+ind = "119234"
 f = False
 f1 = False
-organ = str()
+organ = "Москва"
 
 def find(toponym_to_find):
     geocoder_api_server = "http://geocode-maps.yandex.ru/1.x/"
